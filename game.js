@@ -25,10 +25,10 @@
   const GRAVITY = 1750;
   const INITIAL_SPEED = 380;
   const MAX_SPEED = 1050;
-  const ACCELERATION = 14; // Speed increase per second
-  const JUMP_FORCE = -540;
-  const HOLD_JUMP_ACCEL = -850;
-  const MAX_JUMP_HOLD_TIME = 0.22; // seconds
+  const ACCELERATION = 3.5; // Very gradual speed increase (subtle & smooth)
+  const JUMP_FORCE = -450; // Initial hop impulse
+  const HOLD_JUMP_ACCEL = -1100; // Continuous thrust while holding jump
+  const MAX_JUMP_HOLD_TIME = 0.28; // Max jump hold duration in seconds
   const COYOTE_TIME = 0.09; // seconds
   const JUMP_BUFFER_TIME = 0.12; // seconds
 
@@ -59,17 +59,25 @@
     y: 300,
     width: 22,
     height: 38,
+    standardHeight: 38,
     vx: INITIAL_SPEED,
     vy: 0,
     isGrounded: false,
     coyoteTimer: 0,
     jumpHoldTimer: 0,
+    jumpHoldElapsed: 0,
     isHoldingJump: false,
     stumbleTimer: 0,
     runAnimTime: 0,
     distanceRun: 0,
+    isHighJump: false,
+    isRolling: false,
+    rollTimer: 0,
+    rollDuration: 0.38,
 
     reset(startX, startY) {
+      this.width = 22;
+      this.height = this.standardHeight;
       this.x = startX;
       this.y = startY - this.height;
       this.vx = INITIAL_SPEED;
@@ -77,10 +85,14 @@
       this.isGrounded = true;
       this.coyoteTimer = 0;
       this.jumpHoldTimer = 0;
+      this.jumpHoldElapsed = 0;
       this.isHoldingJump = false;
       this.stumbleTimer = 0;
       this.runAnimTime = 0;
       this.distanceRun = 0;
+      this.isHighJump = false;
+      this.isRolling = false;
+      this.rollTimer = 0;
     }
   };
 
@@ -175,8 +187,8 @@
         });
       }
 
-      // Add obstacles (crates) on rooftops
-      if (width > 500 && Math.random() > 0.35) {
+      // Add obstacles (crates) on rooftops only after initial grace distance (x > 1800)
+      if (x > 1800 && width > 500 && Math.random() > 0.35) {
         const obsX = x + 180 + Math.random() * (width - 320);
         // Single crate or double stack
         obstacles.push({
@@ -231,7 +243,7 @@
       // Crumbling rooftop: trembles and collapses under player weight
       b.crumbleState = 'STABLE'; // 'STABLE' | 'WARNING' | 'FALLING'
       b.crumbleTimer = 0;
-      b.crumbleDelay = 0.32; // Seconds of shaking warning before dropping
+      b.crumbleDelay = 0.72; // Generous 0.72s of trembling warning before dropping
       b.crumbleVy = 0;
       b.shakeY = 0;
       b.cracks = [];
@@ -410,7 +422,11 @@
       player.isGrounded = false;
       player.coyoteTimer = 0;
       player.jumpHoldTimer = MAX_JUMP_HOLD_TIME;
+      player.jumpHoldElapsed = 0;
       player.isHoldingJump = true;
+      player.isHighJump = false;
+      player.isRolling = false; // Cancel roll if jumping out of it
+      player.height = player.standardHeight;
       soundManager.playJump();
       addDust(player.x + player.width / 2, player.y + player.height, 5, 25);
     } else {
@@ -422,6 +438,11 @@
   function handleJumpRelease() {
     input.jumpHeld = false;
     player.isHoldingJump = false;
+
+    // Variable jump height cut: if released while ascending, immediately dampen upward velocity
+    if (player.vy < -160) {
+      player.vy = player.vy * 0.45;
+    }
   }
 
   // --- Event Listeners (macOS Keyboard + Android Touch) ---
@@ -496,8 +517,25 @@
     if (player.isHoldingJump && input.jumpHeld && player.jumpHoldTimer > 0) {
       player.vy += HOLD_JUMP_ACCEL * dt;
       player.jumpHoldTimer -= dt;
+      player.jumpHoldElapsed += dt;
+      if (player.jumpHoldElapsed > 0.16) {
+        player.isHighJump = true; // Trigger for parkour landing roll
+      }
     } else {
       player.isHoldingJump = false;
+    }
+
+    // Update rolling state
+    if (player.isRolling) {
+      player.rollTimer -= dt;
+      player.height = 20; // Lower profile during roll
+      if (Math.random() < 0.35) {
+        addDust(player.x + player.width / 2, player.y + player.height, 1, 10);
+      }
+      if (player.rollTimer <= 0) {
+        player.isRolling = false;
+        player.height = player.standardHeight;
+      }
     }
 
     // Gravity
@@ -508,7 +546,7 @@
     player.y += player.vy * dt;
 
     // Running animation cycle
-    if (player.isGrounded) {
+    if (player.isGrounded && !player.isRolling) {
       player.runAnimTime += dt * (player.vx / 80);
       // Spawn subtle dust puffs while sprinting
       if (Math.random() < 0.25) {
@@ -521,21 +559,21 @@
       if (b.type === 'CRUMBLING') {
         if (b.crumbleState === 'WARNING') {
           b.crumbleTimer += dt;
-          b.shakeY = (Math.random() - 0.5) * 6;
-          screenShake = Math.max(screenShake, 3.5);
-          if (Math.random() < 0.5) {
+          b.shakeY = (Math.random() - 0.5) * 5;
+          screenShake = Math.max(screenShake, 3.0);
+          if (Math.random() < 0.45) {
             addCrumbleDebris(b.x + Math.random() * b.width, b.y + b.shakeY, 2);
             addDust(b.x + Math.random() * b.width, b.y + b.shakeY, 1, 10);
           }
           if (b.crumbleTimer >= b.crumbleDelay) {
             b.crumbleState = 'FALLING';
-            screenShake = 8;
+            screenShake = 7;
           }
         } else if (b.crumbleState === 'FALLING') {
-          b.crumbleVy += 1400 * dt; // Rapid downward acceleration
+          b.crumbleVy += 950 * dt; // Gentler, smoother collapse acceleration
           b.y += b.crumbleVy * dt;
-          b.shakeY = (Math.random() - 0.5) * 4;
-          if (Math.random() < 0.6) {
+          b.shakeY = (Math.random() - 0.5) * 3;
+          if (Math.random() < 0.5) {
             addCrumbleDebris(b.x + Math.random() * b.width, b.y + b.shakeY, 2);
           }
         }
@@ -565,6 +603,7 @@
           // Check landing on roof top
           if (pBox.b >= roofY && pBox.b - player.vy * dt <= roofY + 24 && relVy >= -10) {
             player.y = roofY - player.height;
+            const impactVy = player.vy;
             player.vy = b.crumbleVy || 0;
             player.isGrounded = true;
 
@@ -577,8 +616,14 @@
               addCrumbleDebris(player.x + player.width / 2, roofY, 6);
             }
 
-            // Landing sound and impact dust
+            // Landing sound, dust, and parkour roll
             if (!wasGrounded) {
+              if (player.isHighJump || impactVy > 450) {
+                player.isRolling = true;
+                player.rollTimer = player.rollDuration;
+                player.isHighJump = false;
+                addDust(player.x + player.width / 2, roofY, 8, 28);
+              }
               soundManager.playLand(player.vx / INITIAL_SPEED);
               addDust(player.x + player.width / 2, roofY, 6, 24);
               screenShake = Math.min(6, (player.vx / INITIAL_SPEED) * 2.5);
@@ -592,11 +637,34 @@
           }
         }
       } else if (b.type === 'HALLWAY') {
-        // Floor of hallway
+        const roofTopY = b.y - 40;
         const floorY = b.y + b.hallwayHeight;
+
         if (pBox.r > b.x && pBox.l < b.x + b.width) {
-          // Inside hallway floor collision
-          if (pBox.b >= floorY && pBox.b - player.vy * dt <= floorY + 16 && player.vy >= 0) {
+          // 1. Landing on OUTER ROOFTOP of the hallway building
+          if (pBox.b >= roofTopY && pBox.b - player.vy * dt <= roofTopY + 24 && player.vy >= 0) {
+            player.y = roofTopY - player.height;
+            const impactVy = player.vy;
+            player.vy = 0;
+            player.isGrounded = true;
+
+            if (!wasGrounded) {
+              if (player.isHighJump || impactVy > 450) {
+                player.isRolling = true;
+                player.rollTimer = player.rollDuration;
+                player.isHighJump = false;
+                addDust(player.x + player.width / 2, roofTopY, 8, 28);
+              }
+              soundManager.playLand(player.vx / INITIAL_SPEED);
+              addDust(player.x + player.width / 2, roofTopY, 6, 24);
+              if (input.jumpBufferTimer > 0) {
+                input.jumpBufferTimer = 0;
+                handleJumpTrigger();
+              }
+            }
+          }
+          // 2. Landing on INDOOR FLOOR of hallway (if below outer roof)
+          else if (pBox.b >= floorY && pBox.b - player.vy * dt <= floorY + 24 && player.vy >= 0 && player.y >= b.y - 20) {
             player.y = floorY - player.height;
             player.vy = 0;
             player.isGrounded = true;
@@ -611,22 +679,21 @@
             }
           }
 
-          // Ceiling collision
-          const ceilingY = b.y;
-          if (pBox.t < ceilingY && player.vy < 0) {
-            player.y = ceilingY;
+          // Ceiling collision if jumping inside hallway
+          if (player.y < b.y && player.y > roofTopY && player.vy < 0) {
+            player.y = b.y;
             player.vy = 20;
           }
         }
 
-        // Glass shatter on entrance
-        if (!b.hasShatteredEntrance && player.x + player.width >= b.x) {
+        // Glass shatter on entrance ONLY if player is entering through windows
+        if (!b.hasShatteredEntrance && player.x + player.width >= b.x && player.y + player.height > b.y && player.y < floorY) {
           b.hasShatteredEntrance = true;
           addGlassShards(b.x, b.y, b.hallwayHeight);
         }
 
-        // Glass shatter on exit
-        if (!b.hasShatteredExit && player.x + player.width >= b.x + b.width) {
+        // Glass shatter on exit ONLY if player was inside hallway
+        if (!b.hasShatteredExit && player.x + player.width >= b.x + b.width && player.y + player.height > b.y && player.y < floorY) {
           b.hasShatteredExit = true;
           addGlassShards(b.x + b.width, b.y, b.hallwayHeight);
         }
@@ -875,6 +942,10 @@
         // Ceiling structure
         ctx.fillStyle = '#0c0d13';
         ctx.fillRect(b.x, b.y - 40, b.width, 40);
+        // Outer rooftop edge highlight
+        ctx.fillStyle = '#383e56';
+        ctx.fillRect(b.x, b.y - 40, b.width, 4);
+
         // Floor structure extends to ground
         const floorY = b.y + b.hallwayHeight;
         ctx.fillRect(b.x, floorY, b.width, drawHeight);
@@ -911,28 +982,31 @@
         const drawY = b.y + (b.shakeY || 0);
         const drawHeight = Math.max(b.height, (camera.y + VIEW_H + 1500) - drawY);
 
-        // Building body: deep distressed charcoal
-        ctx.fillStyle = '#08090e';
+        // Building body: looks identical to solid building
+        ctx.fillStyle = '#0c0d13';
         ctx.fillRect(b.x, drawY, b.width, drawHeight);
 
-        // Fractured edge highlight: Warning Amber when stable, Flashing Red when trembling/falling!
+        // Edge highlight: identical to normal roof (#383e56) when STABLE!
+        // ONLY flashes red hazard when WARNING or FALLING!
         if (b.crumbleState === 'STABLE') {
-          ctx.fillStyle = '#f59e0b'; // Amber warning edge
+          ctx.fillStyle = '#383e56';
         } else {
           const flash = Math.sin(Date.now() * 0.03) > 0;
           ctx.fillStyle = flash ? '#ef4444' : '#b91c1c'; // Urgent flashing hazard red
         }
         ctx.fillRect(b.x, drawY, b.width, 4);
 
-        // Draw structural stress cracks
-        ctx.strokeStyle = b.crumbleState === 'STABLE' ? '#334155' : '#ef4444';
-        ctx.lineWidth = b.crumbleState === 'STABLE' ? 2 : 2.5;
-        for (let cr of b.cracks) {
-          ctx.beginPath();
-          ctx.moveTo(b.x + cr.relX, drawY);
-          ctx.lineTo(b.x + cr.relX + cr.offset, drawY + cr.depth * 0.5);
-          ctx.lineTo(b.x + cr.relX - cr.offset * 0.5, drawY + cr.depth);
-          ctx.stroke();
+        // Draw structural stress cracks ONLY when crumbling has begun!
+        if (b.crumbleState !== 'STABLE') {
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2.5;
+          for (let cr of b.cracks) {
+            ctx.beginPath();
+            ctx.moveTo(b.x + cr.relX, drawY);
+            ctx.lineTo(b.x + cr.relX + cr.offset, drawY + cr.depth * 0.5);
+            ctx.lineTo(b.x + cr.relX - cr.offset * 0.5, drawY + cr.depth);
+            ctx.stroke();
+          }
         }
       }
     }
@@ -1016,6 +1090,40 @@
   function drawRunner(ctx, p) {
     ctx.save();
     ctx.translate(p.x + p.width / 2, p.y + p.height);
+
+    ctx.fillStyle = '#050608'; // Pitch black silhouette
+    ctx.strokeStyle = '#050608';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (p.isRolling) {
+      // Parkour roll animation: smooth 360-degree forward tumble
+      const progress = 1 - (p.rollTimer / p.rollDuration);
+      const rollAngle = progress * Math.PI * 2;
+      ctx.translate(0, -11);
+      ctx.rotate(rollAngle);
+
+      // Curled body ball
+      ctx.beginPath();
+      ctx.arc(0, 0, 11, 0, Math.PI * 2);
+      ctx.fill();
+
+      // White collar flash in roll
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(3, -3, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#050608';
+
+      // Tucked arms/legs outline
+      ctx.beginPath();
+      ctx.arc(0, 0, 13, 0.4, 2.7);
+      ctx.stroke();
+
+      ctx.restore();
+      return;
+    }
 
     // Stumble lean or standard forward sprint lean
     const forwardLean = p.stumbleTimer > 0 ? -0.25 : 0.22;
