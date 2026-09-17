@@ -337,6 +337,10 @@
     createBuilding(0, 360, 900, 600, 'ROOF');
     player.reset(140, 360);
 
+    // Reset camera immediately to prevent instant death from camera lag
+    camera.x = player.x - VIEW_W * 0.24;
+    camera.y = Math.max(0, player.y - VIEW_H * 0.55);
+
     // Fill upcoming buildings
     while (lastBuilding.x + lastBuilding.width < player.x + VIEW_W * 2.5) {
       spawnNextBuilding();
@@ -760,10 +764,13 @@
     for (let b of buildings) {
       if (b.x + b.width < camera.x - 50 || b.x > camera.x + VIEW_W + 50) continue;
 
+      // Always extend building body well past the bottom of the camera view to avoid floating box effect
+      const drawHeight = Math.max(b.height, (camera.y + VIEW_H + 1500) - b.y);
+
       if (b.type === 'ROOF') {
         // Main building body: Deep solid charcoal
         ctx.fillStyle = '#0c0d13';
-        ctx.fillRect(b.x, b.y, b.width, b.height);
+        ctx.fillRect(b.x, b.y, b.width, drawHeight);
 
         // Crisp rooftop edge highlight
         ctx.fillStyle = '#383e56';
@@ -789,9 +796,9 @@
         // Ceiling structure
         ctx.fillStyle = '#0c0d13';
         ctx.fillRect(b.x, b.y - 40, b.width, 40);
-        // Floor structure
+        // Floor structure extends to ground
         const floorY = b.y + b.hallwayHeight;
-        ctx.fillRect(b.x, floorY, b.width, b.height);
+        ctx.fillRect(b.x, floorY, b.width, drawHeight);
 
         // Floor edge highlight
         ctx.fillStyle = '#383e56';
