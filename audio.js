@@ -193,6 +193,39 @@ class SoundManager {
     osc.stop(now + 0.65);
   }
 
+  // Rumble sound for crumbling buildings: deep earthquake vibration
+  playRumble() {
+    if (this.isMuted) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(55, now);
+    osc.frequency.linearRampToValueAtTime(30, now + 0.8);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(140, now);
+    filter.frequency.linearRampToValueAtTime(80, now + 0.8);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.9);
+
+    // Rumble debris noise
+    this.playNoise(0.7, 0.22, 280, "lowpass");
+  }
+
   // Helper to generate filtered white noise burst
   playNoise(duration, volume, filterFreq, filterType = "bandpass") {
     if (!this.ctx) return;

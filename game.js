@@ -227,6 +227,22 @@
       b.roofThickness = 24;
       b.windowLeft = { x: x, y: y, w: 10, h: b.hallwayHeight };
       b.windowRight = { x: x + width - 10, y: y, w: 10, h: b.hallwayHeight };
+    } else if (type === 'CRUMBLING') {
+      // Crumbling rooftop: trembles and collapses under player weight
+      b.crumbleState = 'STABLE'; // 'STABLE' | 'WARNING' | 'FALLING'
+      b.crumbleTimer = 0;
+      b.crumbleDelay = 0.32; // Seconds of shaking warning before dropping
+      b.crumbleVy = 0;
+      b.shakeY = 0;
+      b.cracks = [];
+      const crackCount = Math.floor(width / 110);
+      for (let c = 0; c < crackCount; c++) {
+        b.cracks.push({
+          relX: 30 + c * 110 + Math.random() * 40,
+          depth: 20 + Math.random() * 35,
+          offset: (Math.random() - 0.5) * 18
+        });
+      }
     }
 
     buildings.push(b);
@@ -257,9 +273,17 @@
     const bWidth = 450 + Math.random() * 750;
     const bHeight = 600;
 
-    // 15% chance of an indoor hallway if width is generous and speed is high
-    const isHallway = Math.random() < 0.18 && bWidth > 600 && prevSpeed > 500;
-    createBuilding(startX, prevY, bWidth, bHeight, isHallway ? 'HALLWAY' : 'ROOF');
+    // Building type selection
+    let bType = 'ROOF';
+    if (lastBuilding && lastBuilding.type === 'ROOF' && player.distanceRun > 75) {
+      const roll = Math.random();
+      if (roll < 0.25 && bWidth > 450) {
+        bType = 'CRUMBLING';
+      } else if (roll < 0.45 && bWidth > 600 && prevSpeed > 480) {
+        bType = 'HALLWAY';
+      }
+    }
+    createBuilding(startX, prevY, bWidth, bHeight, bType);
   }
 
   // --- Particles System ---
@@ -313,6 +337,24 @@
         vRot: (Math.random() - 0.5) * 20,
         decay: 1.2,
         type: 'box'
+      });
+    }
+  }
+
+  function addCrumbleDebris(x, y, count = 2) {
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: x + (Math.random() - 0.5) * 16,
+        y: y,
+        vx: (Math.random() - 0.5) * 70,
+        vy: Math.random() * 120 + 30,
+        size: 2.5 + Math.random() * 3.5,
+        alpha: 0.95,
+        color: Math.random() > 0.5 ? '#64748b' : '#334155',
+        rot: Math.random() * Math.PI,
+        vRot: (Math.random() - 0.5) * 14,
+        decay: 1.1,
+        type: 'concrete'
       });
     }
   }
@@ -474,6 +516,32 @@
       }
     }
 
+    // --- Update Crumbling Buildings State ---
+    for (let b of buildings) {
+      if (b.type === 'CRUMBLING') {
+        if (b.crumbleState === 'WARNING') {
+          b.crumbleTimer += dt;
+          b.shakeY = (Math.random() - 0.5) * 6;
+          screenShake = Math.max(screenShake, 3.5);
+          if (Math.random() < 0.5) {
+            addCrumbleDebris(b.x + Math.random() * b.width, b.y + b.shakeY, 2);
+            addDust(b.x + Math.random() * b.width, b.y + b.shakeY, 1, 10);
+          }
+          if (b.crumbleTimer >= b.crumbleDelay) {
+            b.crumbleState = 'FALLING';
+            screenShake = 8;
+          }
+        } else if (b.crumbleState === 'FALLING') {
+          b.crumbleVy += 1400 * dt; // Rapid downward acceleration
+          b.y += b.crumbleVy * dt;
+          b.shakeY = (Math.random() - 0.5) * 4;
+          if (Math.random() < 0.6) {
+            addCrumbleDebris(b.x + Math.random() * b.width, b.y + b.shakeY, 2);
+          }
+        }
+      }
+    }
+
     // --- Collision with Buildings ---
     let wasGrounded = player.isGrounded;
     player.isGrounded = false;
@@ -489,19 +557,30 @@
       // Only check buildings near player
       if (b.x > player.x + 200 || b.x + b.width < player.x - 100) continue;
 
-      if (b.type === 'ROOF') {
+      if (b.type === 'ROOF' || b.type === 'CRUMBLING') {
+        const roofY = b.y + (b.shakeY || 0);
         // Landing on rooftop top surface
         if (pBox.r > b.x && pBox.l < b.x + b.width) {
+          const relVy = player.vy - (b.crumbleVy || 0);
           // Check landing on roof top
-          if (pBox.b >= b.y && pBox.b - player.vy * dt <= b.y + 16 && player.vy >= 0) {
-            player.y = b.y - player.height;
-            player.vy = 0;
+          if (pBox.b >= roofY && pBox.b - player.vy * dt <= roofY + 24 && relVy >= -10) {
+            player.y = roofY - player.height;
+            player.vy = b.crumbleVy || 0;
             player.isGrounded = true;
+
+            // Trigger crumbling when stepping on a stable crumbling building
+            if (b.type === 'CRUMBLING' && b.crumbleState === 'STABLE') {
+              b.crumbleState = 'WARNING';
+              b.crumbleTimer = 0;
+              soundManager.playRumble();
+              screenShake = 6;
+              addCrumbleDebris(player.x + player.width / 2, roofY, 6);
+            }
 
             // Landing sound and impact dust
             if (!wasGrounded) {
               soundManager.playLand(player.vx / INITIAL_SPEED);
-              addDust(player.x + player.width / 2, b.y, 6, 24);
+              addDust(player.x + player.width / 2, roofY, 6, 24);
               screenShake = Math.min(6, (player.vx / INITIAL_SPEED) * 2.5);
 
               // Check Jump Buffer
@@ -624,8 +703,8 @@
       pt.y += pt.vy * dt;
       pt.alpha -= pt.decay * dt;
 
-      if (pt.type === 'glass' || pt.type === 'box') {
-        pt.vy += GRAVITY * 0.7 * dt;
+      if (pt.type === 'glass' || pt.type === 'box' || pt.type === 'concrete') {
+        pt.vy += GRAVITY * 0.75 * dt;
         if (pt.rot !== undefined) pt.rot += pt.vRot * dt;
       }
 
@@ -828,6 +907,33 @@
         if (!b.hasShatteredExit) {
           ctx.fillRect(b.x + b.width - 6, b.y, 6, b.hallwayHeight);
         }
+      } else if (b.type === 'CRUMBLING') {
+        const drawY = b.y + (b.shakeY || 0);
+        const drawHeight = Math.max(b.height, (camera.y + VIEW_H + 1500) - drawY);
+
+        // Building body: deep distressed charcoal
+        ctx.fillStyle = '#08090e';
+        ctx.fillRect(b.x, drawY, b.width, drawHeight);
+
+        // Fractured edge highlight: Warning Amber when stable, Flashing Red when trembling/falling!
+        if (b.crumbleState === 'STABLE') {
+          ctx.fillStyle = '#f59e0b'; // Amber warning edge
+        } else {
+          const flash = Math.sin(Date.now() * 0.03) > 0;
+          ctx.fillStyle = flash ? '#ef4444' : '#b91c1c'; // Urgent flashing hazard red
+        }
+        ctx.fillRect(b.x, drawY, b.width, 4);
+
+        // Draw structural stress cracks
+        ctx.strokeStyle = b.crumbleState === 'STABLE' ? '#334155' : '#ef4444';
+        ctx.lineWidth = b.crumbleState === 'STABLE' ? 2 : 2.5;
+        for (let cr of b.cracks) {
+          ctx.beginPath();
+          ctx.moveTo(b.x + cr.relX, drawY);
+          ctx.lineTo(b.x + cr.relX + cr.offset, drawY + cr.depth * 0.5);
+          ctx.lineTo(b.x + cr.relX - cr.offset * 0.5, drawY + cr.depth);
+          ctx.stroke();
+        }
       }
     }
 
@@ -887,10 +993,10 @@
       ctx.globalAlpha = Math.max(0, pt.alpha);
       ctx.fillStyle = pt.color;
 
-      if (pt.type === 'glass') {
+      if (pt.type === 'glass' || pt.type === 'concrete') {
         ctx.translate(pt.x, pt.y);
         ctx.rotate(pt.rot || 0);
-        ctx.fillRect(-pt.size / 2, -pt.size / 2, pt.size, pt.size * 0.6);
+        ctx.fillRect(-pt.size / 2, -pt.size / 2, pt.size, pt.size * (pt.type === 'glass' ? 0.6 : 0.85));
       } else {
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
