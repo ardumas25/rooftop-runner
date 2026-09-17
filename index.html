@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Rooftop Runner - 2D Endless Runner</title>
+  <meta name="description" content="A fast-paced 2D rooftop runner inspired by Canabalt for macOS and Android.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#12131a">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- In-Game HUD -->
+    <div id="hud">
+      <div class="hud-item distance-box">
+        <span class="hud-label">DISTANCE</span>
+        <span id="score-distance">0m</span>
+      </div>
+      <div class="hud-item highscore-box">
+        <span class="hud-label">BEST</span>
+        <span id="best-distance">0m</span>
+      </div>
+      <div class="hud-item speed-box">
+        <span class="hud-label">SPEED</span>
+        <span id="speed-meter">0 km/h</span>
+      </div>
+    </div>
+
+    <!-- Start / Title Screen Overlay -->
+    <div id="start-overlay" class="overlay active">
+      <div class="card">
+        <div class="glitch-title">ROOFTOP RUNNER</div>
+        <p class="subtitle">A 2D Canabalt-style endless escape</p>
+        <div class="instructions">
+          <div class="control-row">
+            <span class="badge">macOS</span>
+            <span>Press <strong>SPACE</strong> or <strong>UP ARROW</strong> to jump</span>
+          </div>
+          <div class="control-row">
+            <span class="badge">Android</span>
+            <span><strong>Tap anywhere</strong> on the screen to jump</span>
+          </div>
+          <p class="tip-text">Hold jump for higher leaps. Hit boxes to slow down if you're going too fast!</p>
+        </div>
+        <button id="start-btn" class="primary-btn">RUN FOR YOUR LIFE</button>
+      </div>
+    </div>
+
+    <!-- Game Over Screen Overlay -->
+    <div id="gameover-overlay" class="overlay">
+      <div class="card">
+        <h2 class="gameover-title">FALLEN</h2>
+        <div class="final-stats">
+          <div class="stat-col">
+            <span class="stat-label">DISTANCE ESCAPED</span>
+            <span id="final-score" class="stat-value">0m</span>
+          </div>
+          <div class="stat-col">
+            <span class="stat-label">RECORD</span>
+            <span id="final-record" class="stat-value highlight">0m</span>
+          </div>
+        </div>
+        <div id="new-record-banner" class="new-record-badge hidden">🏆 NEW RECORD!</div>
+        <button id="restart-btn" class="primary-btn">RUN AGAIN (SPACE / TAP)</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
